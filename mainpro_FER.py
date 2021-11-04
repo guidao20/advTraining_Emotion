@@ -16,6 +16,9 @@ import utils
 from FER2013 import FER2013
 from torch.autograd import Variable
 from Networks import *
+from adversarial_training import Adversarial_Trainings
+
+
 
 parser = argparse.ArgumentParser(description='PyTorch Fer2013 CNN Adversarial Training')
 parser.add_argument('--model', type=str, default='VGG19', help='CNN architecture')
@@ -89,73 +92,8 @@ else:
 if use_cuda:
     net.cuda()
 
-criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(net.parameters(), lr=opt.lr, momentum=0.9, weight_decay=5e-4)
-
-# Training
-def train(epoch):
-    print('\nEpoch: %d' % epoch)
-    global Train_acc
-    net.train()
-    train_loss = 0
-    correct = 0
-    total = 0
-
-    if epoch > learning_rate_decay_start and learning_rate_decay_start >= 0:
-        frac = (epoch - learning_rate_decay_start) // learning_rate_decay_every
-        decay_factor = learning_rate_decay_rate ** frac
-        current_lr = opt.lr * decay_factor
-        utils.set_lr(optimizer, current_lr)  # set the decayed rate
-    else:
-        current_lr = opt.lr
-    print('learning_rate: %s' % str(current_lr))
-
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
-        optimizer.zero_grad()
-        inputs, targets = Variable(inputs), Variable(targets)
-        if opt.attack == "none":
-            delta = torch.zeros_like(inputs)
-        elif opt.attack == "fgsm":
-            delta = torch.zeros_like(inputs).uniform_(-opt.epsilon, opt.epsilon)
-            delta.requires_grad = True
-            outputs = net(inputs + delta)
-            loss = criterion(outputs, targets)
-            loss.backward()
-            grad = delta.grad.detach()
-            delta.data = torch.clamp(delta + opt.alpha * torch.sign(grad), -opt.epsilon, opt.epsilon)
-            delta.data = torch.max(torch.min(1 - inputs, delta.data), 0 - inputs)
-            delta = delta.detach()
-        elif opt.attack == 'pgd':
-            delta = torch.zeros_like(inputs).uniform_(-opt.epsilon, opt.epsilon)
-            delta.data = torch.max(torch.min(1-inputs, delta.data), 0-inputs)
-            for _ in range(opt.attack_iters):
-                delta.requires_grad = True
-                outputs = net(inputs + delta)
-                loss = criterion(outputs, targets)
-                optimizer.zero_grad()
-                loss.backward()
-                grad = delta.grad.detach()
-                I = outputs.max(1)[1] == targets
-                delta.data[I] = torch.clamp(delta + opt.alpha * torch.sign(grad), -opt.epsilon, opt.epsilon)[I]
-                delta.data[I] = torch.max(torch.min(1-inputs, delta.data), 0-inputs)[I]
-            delta = delta.detach()
-        outputs = net(torch.clamp(inputs + delta, 0, 1))
-        loss = criterion(outputs, targets)
-        loss.backward()
-        utils.clip_gradient(optimizer, 0.1)
-        optimizer.step()
-        train_loss += loss.item()
-        _, predicted = torch.max(outputs.data, 1)
-        total += targets.size(0)
-        correct += predicted.eq(targets.data).cpu().sum()
-
-        utils.progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-
-    Train_acc = 100.*correct/total
-
+criterion = nn.CrossEntropyLoss()
 def PublicTest(epoch):
     global PublicTest_acc
     global best_PublicTest_acc
@@ -240,8 +178,11 @@ def PrivateTest(epoch):
         best_PrivateTest_acc = PrivateTest_acc
         best_PrivateTest_acc_epoch = epoch
 
+
+
+adversarial_training = Adversarial_Trainings(1, trainloader, use_cuda, optimizer, 1, net, opt.epsilon, opt.alpha, learning_rate_decay_start, learning_rate_decay_every, learning_rate_decay_rate, opt.lr)
 for epoch in range(start_epoch, total_epoch):
-    train(epoch)
+    adversarial_training.fast_free_advTraining(epoch)
     PublicTest(epoch)
     PrivateTest(epoch)
 

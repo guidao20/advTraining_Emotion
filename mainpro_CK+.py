@@ -16,6 +16,7 @@ import utils
 from CKplus import CKplus
 from torch.autograd import Variable
 from Networks import *
+from adversarial_training import Adversarial_Trainings
 
 parser = argparse.ArgumentParser(description='PyTorch CK+ CNN Training')
 parser.add_argument('--model', type=str, default='VGG19', help='CNN architecture')
@@ -199,8 +200,9 @@ def test(epoch):
         best_Test_acc = Test_acc
         best_Test_acc_epoch = epoch
 
+adversarial_training = Adversarial_Trainings(1, trainloader, use_cuda, optimizer, 1, net, opt.epsilon, opt.alpha, learning_rate_decay_start, learning_rate_decay_every, learning_rate_decay_rate, opt.lr)
 for epoch in range(start_epoch, total_epoch):
-    train(epoch)
+    adversarial_training.fast_free_advTraining(epoch)
     test(epoch)
 
 print("best_Test_acc: %0.3f" % best_Test_acc)
